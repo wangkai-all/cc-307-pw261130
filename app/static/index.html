@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>检查排程台 · 虚构演示</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">◫</div>
+      <div>
+        <h1>检查排程台</h1>
+        <p>虚构预约 · 设备时段 · 人员班次 · 准备要求</p>
+      </div>
+    </div>
+    <div class="topmeta">
+      <span class="pill" id="ledgerSeq">台账 v—</span>
+      <span class="pill clock" id="clockPill">时钟 07:00</span>
+      <span class="pill live" id="syncPill"><i></i>已同步</span>
+      <button type="button" class="ghost" id="btnRecover">恢复状态</button>
+      <button type="button" class="ghost danger" id="btnReset">重置演示</button>
+    </div>
+  </header>
+
+  <div class="disclaimer" role="note">
+    <strong>演示声明</strong> 本页全部机构、人员、设备与检查均为虚构数据，只用于运营排程分析，
+    不提供任何医疗诊断、临床建议或真实预约服务。
+  </div>
+
+  <nav class="tabs" aria-label="主导航">
+    <button type="button" data-view="schedule" class="active" aria-selected="true">排程台</button>
+    <button type="button" data-view="compare" aria-selected="false">方案对比 <span class="tab-badge" id="cmpBadge">0</span></button>
+    <button type="button" data-view="replay" aria-selected="false">确认与回放</button>
+    <button type="button" data-view="ledger" aria-selected="false">事件台账</button>
+  </nav>
+
+  <main>
+    <!-- ============================ 排程台 ============================ -->
+    <section id="view-schedule" class="view active">
+      <div class="toolbar card">
+        <div class="date-row" id="dateRow" role="group" aria-label="选择日期"></div>
+        <div class="toolbar-main">
+          <div class="seg" role="group" aria-label="排程模式">
+            <button type="button" data-mode="global" class="active" aria-pressed="true">
+              整体优化 <span>重排当日</span>
+            </button>
+            <button type="button" data-mode="rolling" aria-pressed="false">
+              滚动局部调整 <span>冻结既有</span>
+            </button>
+          </div>
+          <label class="field" id="tieField">
+            <span>取舍目标</span>
+            <select id="tieBreak">
+              <option value="balanced">均衡</option>
+              <option value="fairness">资源公平优先</option>
+              <option value="stability">稳定少改期优先</option>
+            </select>
+          </label>
+          <label class="field" id="cascadeField" hidden>
+            <span>顺延邻域 <b id="cascadeVal">0</b> 项</span>
+            <input type="range" id="cascade" min="0" max="10" value="0" step="1">
+          </label>
+          <label class="field">
+            <span>计划员</span>
+            <input type="text" id="planner" value="计划员 甲" maxlength="20" autocomplete="off">
+          </label>
+          <div class="grow"></div>
+          <button type="button" class="primary" id="btnRun">运行试算</button>
+          <button type="button" class="secondary" id="btnParallel">3 人并行试算</button>
+          <button type="button" class="ghost" id="btnInterrupt" title="写入检查点后中断计算">模拟中断</button>
+        </div>
+      </div>
+
+      <div id="recoveryBanner" class="banner" hidden></div>
+
+      <div class="kv-row" id="kvRow"></div>
+
+      <div class="grid">
+        <aside class="col-left">
+          <section class="card">
+            <div class="card-head">
+              <h2>插单与待排</h2>
+              <span class="count" id="waitingCount">0</span>
+            </div>
+            <div class="card-body">
+              <div class="subhead">
+                <span>可插单池</span>
+                <span class="hint">加入后进入待排，试算确认才落地</span>
+              </div>
+              <div id="addonPool" class="addon-pool"></div>
+              <details class="custom-add">
+                <summary>自定义插单</summary>
+                <form id="addonForm" class="mini-form">
+                  <label><span>名称</span><input name="label" required maxlength="40" placeholder="例如：加急 腹部 MR（虚构）"></label>
+                  <label><span>模板</span><select name="template_id" id="templateSelect"></select></label>
+                  <div class="two">
+                    <label><span>优先级</span>
+                      <select name="priority">
+                        <option value="1">1 · 紧急</option>
+                        <option value="2">2 · 加急</option>
+                        <option value="4">4 · 优先</option>
+                        <option value="5" selected>5 · 常规</option>
+                      </select>
+                    </label>
+                    <label><span>截止</span><input name="due" type="time" value=""></label>
+                  </div>
+                  <label class="check"><input type="checkbox" name="prep_done"> 准备已完成</label>
+                  <button type="submit" class="secondary small">加入待排</button>
+                </form>
+              </details>
+              <div class="subhead"><span>待排检查</span><span class="hint" id="waitingHint">未排入任何时段</span></div>
+              <div id="waitingList" class="waiting-list"></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>资源台账</h2>
+              <div class="filter-chips" id="resourceFilter">
+                <button type="button" data-kind="all" class="active">全部</button>
+                <button type="button" data-kind="equipment">设备</button>
+                <button type="button" data-kind="prep">准备间</button>
+                <button type="button" data-kind="room">记录间</button>
+                <button type="button" data-kind="staff">人员</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="resourceList" class="resource-list"></div>
+              <p class="footnote">版本号随设备故障、班次调整递增；确认方案时会逐项核对。</p>
+            </div>
+          </section>
+        </aside>
+
+        <section class="col-mid">
+          <section class="card timeline-card">
+            <div class="card-head">
+              <h2>当日排程</h2>
+              <div class="legend">
+                <span><i class="sw official"></i>正式预约</span>
+                <span><i class="sw trial"></i>试算调整</span>
+                <span><i class="sw addon"></i>新增插单</span>
+                <span><i class="sw frozen"></i>冻结未动</span>
+                <span><i class="sw locked"></i>已开始/完成</span>
+                <span><i class="sw block"></i>设备封锁</span>
+              </div>
+              <div class="seg small" id="timelineSource" role="group" aria-label="时间线数据源">
+                <button type="button" data-src="trial" class="active" aria-pressed="true">试算方案</button>
+                <button type="button" data-src="official" aria-pressed="false">正式台账</button>
+              </div>
+            </div>
+            <div class="timeline-wrap">
+              <div class="timeline" id="timeline">
+                <div class="empty-state">正在载入排程…</div>
+              </div>
+            </div>
+            <div class="timeline-foot">
+              <span id="timelineNote">每个检查会连续占用准备间、设备、记录间和人员；同一资源不重叠。</span>
+              <span class="time-range" id="timeRange"></span>
+            </div>
+          </section>
+
+          <section class="card conflicts-card">
+            <div class="card-head">
+              <h2>冲突与未排</h2>
+              <span class="hint" id="conflictHint">无法满足时展示具体冲突，不塞入不合法时段</span>
+            </div>
+            <div class="card-body">
+              <div id="conflictList" class="conflict-list"></div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="col-right">
+          <section class="card" id="planCard"></section>
+          <section class="card">
+            <div class="card-head">
+              <h2>试算记录</h2>
+              <button type="button" class="link" id="btnRefreshTrials">刷新</button>
+            </div>
+            <div class="card-body">
+              <div id="trialList" class="trial-list"></div>
+              <p class="footnote">试算与正式记录分开存放；中断的试算不会写入台账。</p>
+            </div>
+          </section>
+          <section class="card" id="detailCard">
+            <div class="card-head"><h2>检查详情</h2></div>
+            <div class="card-body" id="detailBody">
+              <p class="empty-state">点击时间线中的检查块查看步骤、准备要求与执行操作。</p>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============================ 方案对比 ============================ -->
+    <section id="view-compare" class="view">
+      <div class="compare-grid">
+        <section class="card">
+          <div class="card-head">
+            <h2>选择试算方案</h2>
+            <span class="hint">勾选 2–3 个试算进行对比</span>
+          </div>
+          <div class="card-body">
+            <div class="parallel-box">
+              <div>
+                <strong>多个计划员并行试算</strong>
+                <p>三人同时基于台账 v<span id="cmpSeq">—</span> 计算，各自结果独立保存，不互相覆盖；确认时才核对资源版本。</p>
+              </div>
+              <button type="button" class="secondary" id="btnParallel2">运行并行试算</button>
+            </div>
+            <div id="comparePick" class="compare-pick"></div>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2>指标对照</h2>
+            <span class="hint">等待 ↓、改期 ↓、公平 ↑ 不可同时最优</span>
+          </div>
+          <div class="card-body">
+            <div id="compareTable" class="compare-table"></div>
+            <div id="compareTradeoff" class="tradeoff"></div>
+          </div>
+        </section>
+      </div>
+      <section class="card compare-detail">
+        <div class="card-head"><h2>各方案明细</h2><span class="hint">差异项与冲突原因</span></div>
+        <div class="card-body" id="compareDetail"></div>
+      </section>
+    </section>
+
+    <!-- ============================ 回放 ============================ -->
+    <section id="view-replay" class="view">
+      <div class="card replay-toolbar">
+        <div class="card-head">
+          <h2>确认与回放</h2>
+          <span class="hint">台账只追加；拖动时间轴回到任一事件序号</span>
+        </div>
+        <div class="card-body">
+          <div class="replay-controls">
+            <label class="field wide">
+              <span>回放进度 <b id="replaySeqLabel">—</b></span>
+              <input type="range" id="replayRange" min="0" max="0" value="0">
+            </label>
+            <button type="button" class="secondary" id="btnReplayLatest">回到最新</button>
+            <button type="button" class="ghost" id="btnReplayConfirm">跳到上次确认</button>
+          </div>
+          <div class="replay-meta" id="replayMeta"></div>
+        </div>
+      </div>
+      <div class="replay-grid">
+        <section class="card">
+          <div class="card-head"><h2>事件流</h2><span class="count" id="replayCount">0</span></div>
+          <div class="card-body">
+            <ol id="replayEvents" class="event-list"></ol>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>该时刻的当日状态</h2><span class="hint" id="replayClock"></span></div>
+          <div class="card-body">
+            <div id="replayExams" class="replay-exams"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ============================ 台账 ============================ -->
+    <section id="view-ledger" class="view">
+      <div class="card">
+        <div class="card-head">
+          <h2>事件台账</h2>
+          <span class="hint">正式记录：只追加、可投影、可恢复；试算记录在独立目录</span>
+        </div>
+        <div class="card-body">
+          <div id="ledgerOps" class="ops-list"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>恢复与检查点</h2></div>
+        <div class="card-body">
+          <div id="recoveryPanel" class="recovery-panel"></div>
+          <div class="recovery-actions">
+            <button type="button" class="secondary" id="btnRecover2">检查台账与试算恢复</button>
+            <button type="button" class="ghost" id="btnInterrupt2">模拟计算中断</button>
+          </div>
+          <p class="footnote">
+            中断发生在「写检查点之后、提交结果之前」：试算文件被标记为 interrupted，
+            正式台账不变；恢复后可从检查点重新试算。台账尾部若有损坏行，恢复时会保留可解析前缀并备份原文件。
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toastHost" class="toast-host" aria-live="polite"></div>
+<div id="modalHost"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
